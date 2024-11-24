@@ -37,7 +37,7 @@ struct objectVertex
 
 int normaliseColour(float channel)
 {
-    return int((channel) * (255.0f / (714.0f)));
+    return int((channel) * (255.0f / (1096.5f)));
 }
 
 uint32_t returnColour(Colour c)
@@ -224,6 +224,7 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
     std::vector<objectVertex> vertices;
     std::vector<glm::vec3> vertexNormals;
     Colour c = WHITE;
+    std::string shadingType = "flat";
     bool hasVertexNormals = false;
 
     std::ifstream file(filePath);
@@ -262,6 +263,7 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
             glm::vec3 normal = calculateNormal(t.vertices[0], t.vertices[1], t.vertices[2]);
             t.normal = normal;
             t.colour = c;
+            t.shadingType = shadingType;
             out.push_back(t);
             if (!hasVertexNormals)
             {
@@ -286,6 +288,10 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
                     std::stof(lineSplit[2]),
                     std::stof(lineSplit[3])));
             hasVertexNormals = true;
+        }
+        else if (operation == "s")
+        {
+            shadingType = lineSplit[1];
         }
         else if (operation == "usemtl")
         {
@@ -395,7 +401,7 @@ RayTriangleIntersection getClosestValidIntersection(glm::vec3 source, glm::vec3 
     return solution;
 }
 
-bool hasShadow(std::vector<ModelTriangle> modelPoints, glm::vec3 light, glm::vec3 surfacePoint, int index, int x, int y)
+bool hasShadow(std::vector<ModelTriangle> modelPoints, glm::vec3 light, glm::vec3 surfacePoint, int index)
 {
     glm::vec3 d = glm::normalize(light - surfacePoint);
     float distance = glm::distance(surfacePoint, light);
@@ -446,12 +452,12 @@ float useSpecularLighting(glm::vec3 point, glm::vec3 light, glm::vec3 camera, gl
         return brightness;
 }
 
-glm::vec3 calculateLightingColour(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 normal, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, int x, int y)
+glm::vec3 calculateLightingColour(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 normal, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
 {
     float diffuseBrightness = std::max(useDiffuseLighting(point, light, normal), 0.0f);
     float ambientBrightness = 0.5f;
     float specularBrightness = std::max(useSpecularLighting(point, light, camera, normal), 0.0f);
-    if (hasShadow(modelPoints, light, point, r.triangleIndex, x, y))
+    if (hasShadow(modelPoints, light, point, r.triangleIndex))
     {
         glm::vec3 c = returnLightingColour(r.intersectedTriangle.colour, diffuseBrightness, 0.0, ambientBrightness);
         return c;
@@ -463,7 +469,24 @@ glm::vec3 calculateLightingColour(glm::vec3 point, glm::vec3 light, glm::vec3 ca
     }
 }
 
-Colour phongShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, int x, int y)
+Colour flatShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
+{
+    float diffuseBrightness = std::max(useDiffuseLighting(point, light, r.intersectedTriangle.normal), 0.0f);
+    float ambientBrightness = 0.5f;
+    float specularBrightness = std::max(useSpecularLighting(point, light, camera, r.intersectedTriangle.normal), 0.0f);
+    if (hasShadow(modelPoints, light, point, r.triangleIndex))
+    {
+        glm::vec3 c = returnLightingColour(r.intersectedTriangle.colour, 0.0, 0.0, ambientBrightness);
+        return Colour(c.r, c.g, c.b);
+    }
+    else
+    {
+        glm::vec3 c = returnLightingColour(r.intersectedTriangle.colour, diffuseBrightness, specularBrightness, ambientBrightness);
+        return Colour(c.r, c.g, c.b);
+    }
+}
+
+Colour phongShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
 {
     ModelTriangle t = r.intersectedTriangle;
     glm::vec3 e0 = t.vertices[1] - t.vertices[0];
@@ -476,7 +499,7 @@ Colour phongShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec
 
     glm::vec3 normalAtPoint = glm::normalize(w * n0 + v * n1 + u * n2);
 
-    glm::vec3 c = calculateLightingColour(point, light, camera, normalAtPoint, r, modelPoints, x, y);
+    glm::vec3 c = calculateLightingColour(point, light, camera, normalAtPoint, r, modelPoints);
     return Colour(c.r, c.g, c.b);
 }
 
@@ -487,9 +510,9 @@ Colour gouraudShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::v
     float u = glm::length(0.5f * glm::cross((point - t.vertices[0]), (point - t.vertices[1]))) / area; // region between v1 and v0
     float v = glm::length(0.5f * glm::cross((point - t.vertices[0]), (point - t.vertices[2]))) / area; // region between v2 and v0
     float w = (float)1 - v - u;                                                                        // region between v2 and v1
-    glm::vec3 v0 = calculateLightingColour(r.intersectedTriangle.vertices[0], light, camera, n0, r, modelPoints, 0, 0);
-    glm::vec3 v1 = calculateLightingColour(r.intersectedTriangle.vertices[1], light, camera, n1, r, modelPoints, 0, 0);
-    glm::vec3 v2 = calculateLightingColour(r.intersectedTriangle.vertices[2], light, camera, n2, r, modelPoints, 0, 0);
+    glm::vec3 v0 = calculateLightingColour(r.intersectedTriangle.vertices[0], light, camera, n0, r, modelPoints);
+    glm::vec3 v1 = calculateLightingColour(r.intersectedTriangle.vertices[1], light, camera, n1, r, modelPoints);
+    glm::vec3 v2 = calculateLightingColour(r.intersectedTriangle.vertices[2], light, camera, n2, r, modelPoints);
 
     glm::vec3 c = w * v0 + v * v1 + u * v2;
     return Colour(c.r, c.g, c.b);
@@ -547,10 +570,13 @@ void drawUsingRayTracing(DrawingWindow &window, std::unordered_map<std::string, 
             glm::vec3 d = glm::normalize(p - camera);
             RayTriangleIntersection r = getClosestValidIntersection(camera, d, modelPoints, -1, margin);
             glm::vec3 point = camera + r.distanceFromCamera * d;
-            // glm::vec3 c = calculateLightingColour(point, light, camera, r.intersectedTriangle.normal, r, modelPoints, x, y);
-
-            // Colour c = gouraudShading(point, light, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints);
-            Colour c = phongShading(point, light, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints, x, y);
+            Colour c;
+            if (r.intersectedTriangle.shadingType == "phong")
+                c = phongShading(point, light, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints);
+            else if (r.intersectedTriangle.shadingType == "gouraud")
+                c = gouraudShading(point, light, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints);
+            else
+                c = flatShading(point, light, camera, r, modelPoints);
             if (r.triangleIndex < modelPoints.size())
                 window.setPixelColour(x, y, returnColour(c));
             else
@@ -724,11 +750,11 @@ int main(int argc, char *argv[])
     DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
     SDL_Event event;
     std::unordered_map<std::string, Colour> pallette = readMtlFile("../../models/cornell-box.mtl");
-    vertexNormalPair v = readObjFile("../../models/Custom-box.obj", pallette, 2.8);
+    vertexNormalPair v = readObjFile("../../models/test.obj", pallette, 2.8);
     std::vector<ModelTriangle> modelPoints = v.modelPoints;
     std::vector<glm::vec3> vertexNormals = v.vertexNormals;
     glm::vec3 camera(0.0, 0.0, 4.0);
-    glm::vec3 light(0.0, 0.55, 1.0);
+    glm::vec3 light(0.0, 0.85, 1.0);
     glm::mat3 cameraOrientation = glm::mat3(1.0, 0.0, 0.0,
                                             0.0, 1.0, 0.0,
                                             0.0, 0.0, 1.0);

@@ -9,18 +9,19 @@
 
 #define WHITE Colour("White", 255, 255, 255)
 
-struct vertexNormalPair
-{
-    std::vector<ModelTriangle> modelPoints;
-    std::vector<glm::vec3> vertexNormals;
-};
-
 struct objectVertex
 {
     glm::vec3 vertex;
     int count;
 
     objectVertex(const glm::vec3 &v, int c) : vertex(v), count(c) {}
+};
+
+struct vertexNormalPair
+{
+    std::vector<ModelTriangle> modelPoints;
+    std::vector<glm::vec3> vertexNormals;
+    std::vector<objectVertex> vertices;
 };
 
 glm::vec3 calculateNormal(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2)
@@ -30,12 +31,31 @@ glm::vec3 calculateNormal(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2)
     return glm::normalize(glm::cross(e0, e1));
 }
 
+glm::mat3 x_rotation(float angle)
+{
+    glm::mat3 rotation(1.0, 0.0, 0.0,
+                       0.0, std::cos(angle), std::sin(angle),
+                       0.0, -1.0 * std::sin(angle), std::cos(angle));
+    return rotation;
+}
+
+glm::mat3 y_rotation(float angle)
+{
+    glm::mat3 rotation(std::cos(angle), 0.0, -1.0 * std::sin(angle),
+                       0.0, 1.0, 0.0,
+                       std::sin(angle), 0.0, std::cos(angle));
+    return rotation;
+}
+
 vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::string, Colour> pallette)
 {
     std::vector<ModelTriangle> out;
     std::vector<objectVertex> vertices;
     std::vector<glm::vec3> vertexNormals;
     Colour c;
+    glm::mat3 xRotation = x_rotation(-1.5708f);
+    glm::vec3 translation(0.65f, -2.85f, 1.4f);
+    bool hasVertexNormals = false;
 
     std::ifstream file(filePath);
     std::string line;
@@ -52,9 +72,12 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
                     std::stof(lineSplit[2]),
                     std::stof(lineSplit[3])),
                 0);
-
+            vertex.vertex /= 113.0f / 2.5f;
+            vertex.vertex = xRotation * vertex.vertex;
+            vertex.vertex += translation;
             vertices.push_back(vertex);
-            vertexNormals.push_back(glm::vec3(0.0f, 0.0f, 0.0f));
+            if (!hasVertexNormals)
+                vertexNormals.push_back(glm::vec3(0.0f, 0.0f, 0.0f));
         }
         else if (operation == "f")
         {
@@ -69,6 +92,8 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
             }
             glm::vec3 normal = calculateNormal(t.vertices[0], t.vertices[1], t.vertices[2]);
             t.normal = normal;
+            t.colour = c;
+            t.shadingType = "phong";
             out.push_back(t);
             for (int i = 0; i < 3; i++)
             {
@@ -81,6 +106,15 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
                 }
                 vertices[t.vertexIdx[i]].count += 1;
             }
+        }
+        else if (operation == "vn")
+        {
+            vertexNormals.push_back(
+                glm::vec3(
+                    std::stof(lineSplit[1]),
+                    std::stof(lineSplit[2]),
+                    std::stof(lineSplit[3])));
+            hasVertexNormals = true;
         }
         else if (operation == "usemtl")
         {
@@ -103,7 +137,7 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
     // std::cout << vertices[31].vertex.x << ";" << vertices[31].vertex.y << ";" << vertices[31].vertex.z << std::endl;
     // std::cout << vertices[2].vertex.x << ";" << vertices[2].vertex.y << ";" << vertices[2].vertex.z << std::endl;
 
-    return vertexNormalPair{out, vertexNormals};
+    return vertexNormalPair{out, vertexNormals, vertices};
 }
 
 std::unordered_map<std::string, Colour> readMtlFile(std::string filePath)
@@ -140,6 +174,41 @@ std::unordered_map<std::string, Colour> readMtlFile(std::string filePath)
     return pallette;
 }
 
+void writeToNewFile(std::string newFileName, vertexNormalPair v, int offset)
+{
+    std::vector<ModelTriangle> t = v.modelPoints;
+    std::vector<glm::vec3> vertexNormals = v.vertexNormals;
+    std::vector<objectVertex> vertices = v.vertices;
+
+    std::fstream file(newFileName, std::fstream::app);
+    std::string line;
+    std::string operation;
+    std::string colourName = "None";
+    file << "\n";
+    file << "o bunny_low\n";
+
+    for (int i = 0; i < vertices.size(); i++)
+    {
+        line = "vn " + std::to_string(vertexNormals[i].x) + " " + std::to_string(vertexNormals[i].y) + " " + std::to_string(vertexNormals[i].z) + "\n";
+        file << line;
+        line = "v " + std::to_string(vertices[i].vertex.x) + " " + std::to_string(vertices[i].vertex.y) + " " + std::to_string(vertices[i].vertex.z) + "\n";
+        file << line;
+    }
+
+    for (int i = 0; i < t.size(); i++)
+    {
+        if (colourName != t[i].colour.name)
+        {
+            file << "usemtl " + t[i].colour.name + "\n";
+            file << "s phong\n";
+            colourName = t[i].colour.name;
+        }
+        line = "f " + std::to_string(t[i].vertexIdx[0] + 1 + offset) + "//" + std::to_string(t[i].vertexIdx[0] + 1 + offset) + " " + std::to_string(t[i].vertexIdx[1] + 1 + offset) + "//" + std::to_string(t[i].vertexIdx[1] + 1 + offset) + " " + std::to_string(t[i].vertexIdx[2] + 1 + offset) + "//" + std::to_string(t[i].vertexIdx[2] + 1 + offset) + "\n";
+        file << line;
+    }
+    file.close();
+}
+
 int main(int argc, char *argv[])
 {
     std::unordered_map<std::string, Colour> pallette = readMtlFile("../../models/cornell-box.mtl");
@@ -147,11 +216,5 @@ int main(int argc, char *argv[])
     std::vector<ModelTriangle> modelPoints = v.modelPoints;
     std::vector<glm::vec3> vertexNormals = v.vertexNormals;
 
-    std::vector<float> areas;
-    std::vector<glm::vec3> normals;
-
-    for (glm::vec3 v : vertexNormals)
-    {
-        std::cout << v.x << ";" << v.y << ";" << v.z << std::endl;
-    }
+    writeToNewFile("../../models/test.obj", v, 98);
 }

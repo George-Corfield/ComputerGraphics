@@ -1,0 +1,3 @@
+/Users/georgecorfield/COMS30020/ComputerGraphics/build/CMakeFiles/RedNoise.dir
+/Users/georgecorfield/COMS30020/ComputerGraphics/build/CMakeFiles/edit_cache.dir
+/Users/georgecorfield/COMS30020/ComputerGraphics/build/CMakeFiles/rebuild_cache.dir

@@ -39,6 +39,11 @@ debug: $(SDW_OBJECT_FILES)
 	$(COMPILER) $(LINKER_OPTIONS) $(DEBUG_OPTIONS) -o $(EXECUTABLE) $(OBJECT_FILE) $(SDW_LINKER_FLAGS) $(SDL_LINKER_FLAGS)
 	./$(EXECUTABLE)
 
+object: $(SDW_OBJECT_FILES)
+	$(COMPILER) $(COMPILER_OPTIONS) $(DEBUG_OPTIONS) -o $(BUILD_DIR)/ObjParser.o src/ObjParser.cpp $(SDL_COMPILER_FLAGS) $(SDW_COMPILER_FLAGS) $(GLM_COMPILER_FLAGS)
+	$(COMPILER) $(LINKER_OPTIONS) $(DEBUG_OPTIONS) -o $(BUILD_DIR)/ObjParser $(BUILD_DIR)/ObjParser.o $(SDW_LINKER_FLAGS) $(SDL_LINKER_FLAGS)
+	./$(BUILD_DIR)/ObjParser
+
 # Rule to help find runtime errors (when you get a segmentation fault)
 # NOTE: This needs the "Address Sanitizer" library to be installed in order to work (so it might not work on lab machines !)
 diagnostic: $(SDW_OBJECT_FILES)

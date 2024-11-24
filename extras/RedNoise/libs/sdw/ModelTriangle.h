@@ -13,6 +13,7 @@ struct ModelTriangle
 	Colour colour{};
 	glm::vec3 normal{};
 	std::array<int, 3> vertexIdx{};
+	std::string shadingType;
 
 	ModelTriangle();
 	ModelTriangle(const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2, Colour trigColour);
