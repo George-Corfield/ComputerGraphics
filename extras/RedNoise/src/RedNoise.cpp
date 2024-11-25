@@ -35,22 +35,19 @@ struct objectVertex
     objectVertex(const glm::vec3 &v, int c) : vertex(v), count(c) {}
 };
 
-int normaliseColour(float channel)
-{
-    return int((channel) * (255.0f / (1096.5f)));
-}
-
 uint32_t returnColour(Colour c)
 {
     return (255 << 24) + (c.red << 16) + (c.green << 8) + c.blue;
 }
 
-glm::vec3 returnLightingColour(Colour c, float diffuseBrightness, float specularBrightness, float ambientBrightness)
+glm::vec3 returnLightingColour(Colour c, float angleOfIncidenceIntensity, float proximityIntensity, float specularIntensity, float ambientIntensity)
 {
-    int red = normaliseColour(c.red * (diffuseBrightness + ambientBrightness) + WHITE.red * specularBrightness);
-    int green = normaliseColour(c.green * (diffuseBrightness + ambientBrightness) + WHITE.green * specularBrightness);
-    int blue = normaliseColour(c.blue * (diffuseBrightness + ambientBrightness) + WHITE.blue * specularBrightness);
-    return glm::vec3(red, green, blue);
+    glm::vec3 objectColour(c.red, c.green, c.blue);
+    glm::vec3 lightColour(WHITE.red, WHITE.green, WHITE.blue);
+    glm::vec3 ambientComponent = ambientIntensity * objectColour;
+    glm::vec3 diffuseComponent = angleOfIncidenceIntensity * proximityIntensity * objectColour;
+    glm::vec3 specularComponent = specularIntensity * proximityIntensity * lightColour;
+    return glm::clamp(ambientComponent + diffuseComponent + specularComponent, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(255.0f, 255.0f, 255.0f));
 }
 
 void sortTrianglePointsVertical(CanvasTriangle &triangle)
@@ -433,14 +430,7 @@ float calculateAngleOfIncidence(glm::vec3 point, glm::vec3 light, glm::vec3 norm
         return angle;
 }
 
-float useDiffuseLighting(glm::vec3 point, glm::vec3 light, glm::vec3 normal)
-{
-    float brightness = calculateProximity(light, point);
-    brightness *= calculateAngleOfIncidence(point, light, normal);
-    return brightness;
-}
-
-float useSpecularLighting(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 normal)
+float calculateSpecular(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 normal)
 {
     glm::vec3 rayOfIncidence = glm::normalize(point - light);
     glm::vec3 view = glm::normalize(point - camera);
@@ -452,43 +442,25 @@ float useSpecularLighting(glm::vec3 point, glm::vec3 light, glm::vec3 camera, gl
         return brightness;
 }
 
-glm::vec3 calculateLightingColour(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 normal, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
+glm::vec3 calculateLightingColour(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 normal, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, bool flatShading)
 {
-    float diffuseBrightness = std::max(useDiffuseLighting(point, light, normal), 0.0f);
-    float ambientBrightness = 0.5f;
-    float specularBrightness = std::max(useSpecularLighting(point, light, camera, normal), 0.0f);
+    float angleOfIncidenceIntensity = calculateAngleOfIncidence(point, light, normal);
+    float proximityIntensity = calculateProximity(light, point);
+    float specularIntensity = calculateSpecular(point, light, camera, normal);
+    float ambientIntensity = 0.3f;
     if (hasShadow(modelPoints, light, point, r.triangleIndex))
     {
-        glm::vec3 c = returnLightingColour(r.intersectedTriangle.colour, diffuseBrightness, 0.0, ambientBrightness);
-        return c;
+        if (flatShading)
+            return returnLightingColour(r.intersectedTriangle.colour, 0.0f, 0.0f, 0.0f, ambientIntensity);
+        else
+            return returnLightingColour(r.intersectedTriangle.colour, angleOfIncidenceIntensity, proximityIntensity, 0.0f, ambientIntensity);
     }
     else
-    {
-        glm::vec3 c = returnLightingColour(r.intersectedTriangle.colour, diffuseBrightness, specularBrightness, ambientBrightness);
-        return c;
-    }
+        return returnLightingColour(r.intersectedTriangle.colour, angleOfIncidenceIntensity, proximityIntensity, specularIntensity, ambientIntensity);
 }
 
-Colour flatShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
+glm::vec3 calculateBarycentric(ModelTriangle t, glm::vec3 point)
 {
-    float diffuseBrightness = std::max(useDiffuseLighting(point, light, r.intersectedTriangle.normal), 0.0f);
-    float ambientBrightness = 0.5f;
-    float specularBrightness = std::max(useSpecularLighting(point, light, camera, r.intersectedTriangle.normal), 0.0f);
-    if (hasShadow(modelPoints, light, point, r.triangleIndex))
-    {
-        glm::vec3 c = returnLightingColour(r.intersectedTriangle.colour, 0.0, 0.0, ambientBrightness);
-        return Colour(c.r, c.g, c.b);
-    }
-    else
-    {
-        glm::vec3 c = returnLightingColour(r.intersectedTriangle.colour, diffuseBrightness, specularBrightness, ambientBrightness);
-        return Colour(c.r, c.g, c.b);
-    }
-}
-
-Colour phongShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
-{
-    ModelTriangle t = r.intersectedTriangle;
     glm::vec3 e0 = t.vertices[1] - t.vertices[0];
     glm::vec3 e1 = t.vertices[2] - t.vertices[0];
 
@@ -496,26 +468,72 @@ Colour phongShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec
     float u = glm::length(0.5f * glm::cross((point - t.vertices[0]), (point - t.vertices[1]))) / area;
     float v = glm::length(0.5f * glm::cross((point - t.vertices[0]), (point - t.vertices[2]))) / area;
     float w = 1.0f - (v + u);
+    return glm::vec3(u, v, w);
+}
 
-    glm::vec3 normalAtPoint = glm::normalize(w * n0 + v * n1 + u * n2);
+Colour flatShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
+{
+    glm::vec3 c = calculateLightingColour(point, light, camera, r.intersectedTriangle.normal, r, modelPoints, true);
+    return Colour(c.r, c.g, c.b);
+}
 
-    glm::vec3 c = calculateLightingColour(point, light, camera, normalAtPoint, r, modelPoints);
+Colour phongShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
+{
+    ModelTriangle t = r.intersectedTriangle;
+    glm::vec3 barycentric = calculateBarycentric(t, point);
+
+    glm::vec3 normalAtPoint = glm::normalize(barycentric.z * n0 + barycentric.y * n1 + barycentric.x * n2);
+
+    glm::vec3 c = calculateLightingColour(point, light, camera, normalAtPoint, r, modelPoints, false);
     return Colour(c.r, c.g, c.b);
 }
 
 Colour gouraudShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
 {
     ModelTriangle t = r.intersectedTriangle;
-    float area = 0.5f * glm::length(glm::cross((t.vertices[1] - t.vertices[0]), (t.vertices[2] - t.vertices[0])));
-    float u = glm::length(0.5f * glm::cross((point - t.vertices[0]), (point - t.vertices[1]))) / area; // region between v1 and v0
-    float v = glm::length(0.5f * glm::cross((point - t.vertices[0]), (point - t.vertices[2]))) / area; // region between v2 and v0
-    float w = (float)1 - v - u;                                                                        // region between v2 and v1
-    glm::vec3 v0 = calculateLightingColour(r.intersectedTriangle.vertices[0], light, camera, n0, r, modelPoints);
-    glm::vec3 v1 = calculateLightingColour(r.intersectedTriangle.vertices[1], light, camera, n1, r, modelPoints);
-    glm::vec3 v2 = calculateLightingColour(r.intersectedTriangle.vertices[2], light, camera, n2, r, modelPoints);
+    glm::vec3 barycentric = calculateBarycentric(t, point);
+    // region between v2 and v1
+    glm::vec3 v0 = calculateLightingColour(r.intersectedTriangle.vertices[0], light, camera, n0, r, modelPoints, false);
+    glm::vec3 v1 = calculateLightingColour(r.intersectedTriangle.vertices[1], light, camera, n1, r, modelPoints, false);
+    glm::vec3 v2 = calculateLightingColour(r.intersectedTriangle.vertices[2], light, camera, n2, r, modelPoints, false);
 
-    glm::vec3 c = w * v0 + v * v1 + u * v2;
+    glm::vec3 c = barycentric.z * v0 + barycentric.y * v1 + barycentric.x * v2;
     return Colour(c.r, c.g, c.b);
+}
+
+Colour mirrorShading(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals)
+{
+    glm::vec3 rayOfIncidence = glm::normalize(point - camera);
+    glm::vec3 barycentric = calculateBarycentric(r.intersectedTriangle, point);
+    glm::vec3 normalAtPoint = glm::normalize(barycentric.z * n0 + barycentric.y * n1 + barycentric.x * n2);
+    glm::vec3 rayOfReflection = glm::normalize(rayOfIncidence - (float)2.0 * normalAtPoint * (glm::dot(rayOfIncidence, normalAtPoint)));
+    RayTriangleIntersection reflectedTriangle = getClosestValidIntersection(point, rayOfReflection, modelPoints, r.triangleIndex, 0.05);
+    if (r.triangleIndex < modelPoints.size())
+    {
+        glm::vec3 reflectedPoint = point + reflectedTriangle.distanceFromCamera * rayOfReflection;
+        if (reflectedTriangle.intersectedTriangle.shadingType == "phong")
+            return phongShading(reflectedPoint,
+                                light,
+                                camera,
+                                vertexNormals[reflectedTriangle.intersectedTriangle.vertexIdx[0]],
+                                vertexNormals[reflectedTriangle.intersectedTriangle.vertexIdx[1]],
+                                vertexNormals[reflectedTriangle.intersectedTriangle.vertexIdx[2]],
+                                reflectedTriangle,
+                                modelPoints);
+        else if (reflectedTriangle.intersectedTriangle.shadingType == "gouraud")
+            return gouraudShading(reflectedPoint,
+                                  light,
+                                  camera,
+                                  vertexNormals[reflectedTriangle.intersectedTriangle.vertexIdx[0]],
+                                  vertexNormals[reflectedTriangle.intersectedTriangle.vertexIdx[1]],
+                                  vertexNormals[reflectedTriangle.intersectedTriangle.vertexIdx[2]],
+                                  reflectedTriangle,
+                                  modelPoints);
+        else
+            return flatShading(reflectedPoint, light, camera, reflectedTriangle, modelPoints);
+    }
+    else
+        return BLACK;
 }
 
 void drawUsingWireframes(DrawingWindow &window, std::unordered_map<std::string, Colour> pallette, std::vector<ModelTriangle> modelPoints, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation, bool orbit)
@@ -575,6 +593,8 @@ void drawUsingRayTracing(DrawingWindow &window, std::unordered_map<std::string, 
                 c = phongShading(point, light, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints);
             else if (r.intersectedTriangle.shadingType == "gouraud")
                 c = gouraudShading(point, light, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints);
+            else if (r.intersectedTriangle.shadingType == "mirror")
+                c = mirrorShading(point, light, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints, vertexNormals);
             else
                 c = flatShading(point, light, camera, r, modelPoints);
             if (r.triangleIndex < modelPoints.size())
