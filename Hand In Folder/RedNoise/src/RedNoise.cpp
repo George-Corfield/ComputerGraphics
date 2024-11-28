@@ -17,22 +17,27 @@
 #define WIDTH 640
 #define HEIGHT 480
 #define SPECULAR_EXPONENT 256
+// define colours for testing
 #define WHITE Colour("White", 255, 255, 255)
 #define BLACK Colour("Black", 0, 0, 0)
 #define BLUE Colour("Blue", 0, 0, 255)
 #define GREEN Colour("Green", 0, 255, 0)
 
+// structure to return triangles and vertex normals in one
 struct VertexProperties
 {
     std::vector<ModelTriangle> modelPoints;
     std::vector<glm::vec3> Normals;
 };
 
+// structure to return colours and texture maps
 struct Palettes
 {
     std::unordered_map<std::string, Colour> colourPalette;
     std::vector<TextureMap> map;
 };
+
+// structure to hold vertices to calculate normals
 struct ObjectVertex
 {
     glm::vec3 vertex;
@@ -41,20 +46,22 @@ struct ObjectVertex
     ObjectVertex(const glm::vec3 &v, int c) : vertex(v), count(c) {}
 };
 
+// creates 32 bit integer of colour
 uint32_t returnColour(Colour c)
 {
     return (255 << 24) + (c.red << 16) + (c.green << 8) + c.blue;
 }
 
+// resolves colour into constituent components
 Colour retrieveColour(uint32_t n)
 {
-    int a = (n & 0xFF000000) >> 24;
     int r = (n & 0x00FF0000) >> 16;
     int g = (n & 0x0000FF00) >> 8;
     int b = (n & 0x000000FF);
     return Colour(r, g, b);
 }
 
+// Return vec3 of the colour components based on intensity between 0 and 255
 glm::vec3 returnLightingColour(Colour c, float angleOfIncidenceIntensity, float proximityIntensity, float specularIntensity, float ambientIntensity)
 {
     glm::vec3 objectColour(c.red, c.green, c.blue);
@@ -65,6 +72,7 @@ glm::vec3 returnLightingColour(Colour c, float angleOfIncidenceIntensity, float 
     return glm::clamp(ambientComponent + diffuseComponent + specularComponent, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(255.0f, 255.0f, 255.0f));
 }
 
+// sorts the triangle points vertically in place
 void sortTrianglePointsVertical(CanvasTriangle &triangle)
 {
     if (triangle.v0().y > triangle.v2().y)
@@ -81,6 +89,7 @@ void sortTrianglePointsVertical(CanvasTriangle &triangle)
     }
 }
 
+// sorts triangle points 1 and 2 in place horizontally
 void sortTrianglePointsHorizontal(CanvasTriangle &t)
 {
     if (t.v1().x > t.v2().x)
@@ -89,6 +98,7 @@ void sortTrianglePointsHorizontal(CanvasTriangle &t)
     }
 }
 
+// interpolates a point p on the line between a and c
 CanvasPoint interpolatePoint(CanvasPoint a, CanvasPoint b, CanvasPoint c)
 {
     float y1 = b.y - a.y;
@@ -100,6 +110,7 @@ CanvasPoint interpolatePoint(CanvasPoint a, CanvasPoint b, CanvasPoint c)
     return CanvasPoint(a.x + x1, b.y, a.depth + d1);
 }
 
+// interpolates a set of values between 2 numbers
 std::vector<float> interpolateSingleFloats(float from, float to, int numberOfValues)
 {
     float diff = to - from;
@@ -114,6 +125,7 @@ std::vector<float> interpolateSingleFloats(float from, float to, int numberOfVal
     return out;
 }
 
+// interpolates a set of vec2's between 2 vec2's
 std::vector<glm::vec2> interpolate2DVector(glm::vec2 from, glm::vec2 to, int n)
 {
     glm::vec2 diff = to - from;
@@ -128,6 +140,7 @@ std::vector<glm::vec2> interpolate2DVector(glm::vec2 from, glm::vec2 to, int n)
     return out;
 }
 
+// calculates the normal to the triangle
 glm::vec3 calculateNormal(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2)
 {
     glm::vec3 e0 = v1 - v0;
@@ -135,11 +148,13 @@ glm::vec3 calculateNormal(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2)
     return glm::normalize(glm::cross(e0, e1));
 }
 
+// generates a random float between -1 and 1
 float randomFloat()
 {
     return ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
 }
 
+// generates a sample of lights in a sphere for soft shadowing
 std::vector<glm::vec3> sampleLightSources(glm::vec4 light, int sampleSize)
 {
     float radius = light.w;
@@ -147,7 +162,6 @@ std::vector<glm::vec3> sampleLightSources(glm::vec4 light, int sampleSize)
     std::vector<glm::vec3> out = {center};
     for (int i = 0; i < sampleSize - 1; i++)
     {
-        float a = randomFloat();
         glm::vec3 ratio(randomFloat() * radius, randomFloat() * radius, randomFloat() * radius);
         glm::vec3 newLight = center + ratio;
         out.push_back(newLight);
@@ -155,6 +169,7 @@ std::vector<glm::vec3> sampleLightSources(glm::vec4 light, int sampleSize)
     return out;
 }
 
+// draws a line between 2 canvas points
 void drawLine(DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour c)
 {
     float diffX = to.x - from.x;
@@ -170,6 +185,7 @@ void drawLine(DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour c)
     }
 }
 
+// draws a raster between 2 points taking into account occlusion
 void rasterise(DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour c, float depthArr[HEIGHT][WIDTH])
 {
     int y = std::round(from.y);
@@ -190,6 +206,7 @@ void rasterise(DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour c
     }
 }
 
+// draws an unfilled triangle
 void drawStrokedTriangle(DrawingWindow &window, CanvasTriangle triangle, Colour colour)
 {
     drawLine(window, triangle.v0(), triangle.v1(), colour);
@@ -197,6 +214,7 @@ void drawStrokedTriangle(DrawingWindow &window, CanvasTriangle triangle, Colour 
     drawLine(window, triangle.v2(), triangle.v0(), colour);
 }
 
+// fills a triangle with a colour using rasterise
 void fillTriangle(DrawingWindow &window, CanvasTriangle t, Colour c, float depthArr[HEIGHT][WIDTH], int factor)
 {
     sortTrianglePointsHorizontal(t);
@@ -214,6 +232,7 @@ void fillTriangle(DrawingWindow &window, CanvasTriangle t, Colour c, float depth
     }
 }
 
+// draws a filled triangle using fill triangle on 2 halves
 void drawFilledTriangle(DrawingWindow &window, CanvasTriangle t, Colour c, float depthArr[HEIGHT][WIDTH])
 {
     sortTrianglePointsVertical(t);
@@ -224,6 +243,7 @@ void drawFilledTriangle(DrawingWindow &window, CanvasTriangle t, Colour c, float
     fillTriangle(window, t2, c, depthArr, -1);
 }
 
+// projects a 3d point onto a 2d surface
 CanvasPoint projectVertexOntoCanvasPoint(glm::vec3 camera, float focalLength, glm::vec3 vertexPosition, glm::mat3 cameraOrientation)
 {
     float u, v;
@@ -238,6 +258,7 @@ CanvasPoint projectVertexOntoCanvasPoint(glm::vec3 camera, float focalLength, gl
     return CanvasPoint(u, v, 1 / pos.z);
 }
 
+// detects if a point p is not on the screen based on width, height and depth
 bool notOnTheScreen(CanvasPoint p)
 {
     if ((p.x >= WIDTH || p.x < 0) || (p.y >= HEIGHT || p.y < 0) || (p.depth >= 0))
@@ -246,6 +267,7 @@ bool notOnTheScreen(CanvasPoint p)
         return false;
 }
 
+// draws a wireframe scene
 void drawUsingWireframes(DrawingWindow &window, std::vector<ModelTriangle> modelPoints, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation)
 {
     for (size_t i = 0; i < modelPoints.size(); i++)
@@ -264,6 +286,7 @@ void drawUsingWireframes(DrawingWindow &window, std::vector<ModelTriangle> model
     }
 }
 
+// draws a rasterised screen
 void drawUsingRasterisation(DrawingWindow &window, std::vector<ModelTriangle> modelPoints, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation)
 {
 
@@ -284,6 +307,7 @@ void drawUsingRasterisation(DrawingWindow &window, std::vector<ModelTriangle> mo
     }
 }
 
+// calculates the barycentric coordinates of a point in a triangle
 glm::vec3 calculateBarycentric(ModelTriangle t, glm::vec3 point)
 {
     glm::vec3 e0 = t.vertices[1] - t.vertices[0];
@@ -296,6 +320,7 @@ glm::vec3 calculateBarycentric(ModelTriangle t, glm::vec3 point)
     return glm::vec3(u, v, w);
 }
 
+// Gets the closest point in a direction from a source
 RayTriangleIntersection getClosestValidIntersection(glm::vec3 source, glm::vec3 direction, std::vector<ModelTriangle> modelPoints, int index, float margin)
 {
     RayTriangleIntersection solution;
@@ -321,6 +346,7 @@ RayTriangleIntersection getClosestValidIntersection(glm::vec3 source, glm::vec3 
     return solution;
 }
 
+// uses closest interaction to detect if there is an object between a point and the light source
 int hasShadow(std::vector<ModelTriangle> modelPoints, glm::vec3 light, glm::vec3 surfacePoint, int index)
 {
     glm::vec3 d = glm::normalize(light - surfacePoint);
@@ -333,16 +359,18 @@ int hasShadow(std::vector<ModelTriangle> modelPoints, glm::vec3 light, glm::vec3
         return 1;
 }
 
+// calculates how close a point is to a light source based on 1/4pir^2
 float calculateProximity(glm::vec3 light, glm::vec3 point)
 {
     float distance = glm::distance(light, point);
-    float diffuse = 10 / (3 * 3.14 * distance * distance);
+    float diffuse = 10 / (4 * 3.14 * distance * distance);
     if (diffuse >= 1.0)
-        return 1.0;
+        return 1.0f;
     else
         return diffuse;
 }
 
+// calculates angle between point normal and light source
 float calculateAngleOfIncidence(glm::vec3 point, glm::vec3 light, glm::vec3 normal)
 {
     glm::vec3 direction = glm::normalize(light - point);
@@ -353,6 +381,7 @@ float calculateAngleOfIncidence(glm::vec3 point, glm::vec3 light, glm::vec3 norm
         return angle;
 }
 
+// calculates specular degree beteen point, view and light source
 float calculateSpecular(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm::vec3 normal)
 {
     glm::vec3 rayOfIncidence = glm::normalize(point - light);
@@ -365,6 +394,7 @@ float calculateSpecular(glm::vec3 point, glm::vec3 light, glm::vec3 camera, glm:
         return brightness;
 }
 
+// calculates intensities and then uses returnLightingColour to generate a Colour for a point
 glm::vec3 calculateLightingColour(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 camera, glm::vec3 normal, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, bool flatShading)
 {
     float angleOfIncidenceIntensity = calculateAngleOfIncidence(point, lights[0], normal);
@@ -386,6 +416,7 @@ glm::vec3 calculateLightingColour(glm::vec3 point, std::vector<glm::vec3> lights
     return returnLightingColour(r.intersectedTriangle.colour, angleOfIncidenceIntensity, proximityIntensity, specularIntensity, ambientIntensity);
 }
 
+// flat shades the point, if it has a texture the texture is mapped onto the point
 Colour flatShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 camera, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, std::vector<TextureMap> map)
 {
     ModelTriangle t = r.intersectedTriangle;
@@ -403,6 +434,7 @@ Colour flatShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 cam
     return Colour(c.r, c.g, c.b);
 }
 
+// uses the phong shading model based on barycentric coordinates
 Colour phongShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
 {
     ModelTriangle t = r.intersectedTriangle;
@@ -414,11 +446,11 @@ Colour phongShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 ca
     return Colour(c.r, c.g, c.b);
 }
 
+// uses gouraud shading model to calculate lighting at the point
 Colour gouraudShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
 {
     ModelTriangle t = r.intersectedTriangle;
     glm::vec3 barycentric = calculateBarycentric(t, point);
-    // region between v2 and v1
     glm::vec3 v0 = calculateLightingColour(r.intersectedTriangle.vertices[0], lights, camera, n0, r, modelPoints, false);
     glm::vec3 v1 = calculateLightingColour(r.intersectedTriangle.vertices[1], lights, camera, n1, r, modelPoints, false);
     glm::vec3 v2 = calculateLightingColour(r.intersectedTriangle.vertices[2], lights, camera, n2, r, modelPoints, false);
@@ -427,6 +459,7 @@ Colour gouraudShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 
     return Colour(c.r, c.g, c.b);
 }
 
+// calculates what the reflection of a point would be to create a mirror effect on a surface
 Colour mirrorShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals, std::vector<TextureMap> map)
 {
     glm::vec3 rayOfIncidence = glm::normalize(point - camera);
@@ -462,6 +495,7 @@ Colour mirrorShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 c
         return BLACK;
 }
 
+// projects a 2d point onto a 3d vector
 glm::vec3 projectCanvasPointOntoVertex(CanvasPoint p, float focalLength, glm::vec3 camera, glm::mat3 cameraOrientation)
 {
     float z = focalLength;
@@ -473,6 +507,7 @@ glm::vec3 projectCanvasPointOntoVertex(CanvasPoint p, float focalLength, glm::ve
     return out;
 }
 
+// uses raytracing to draw a 3d scene
 void drawUsingRayTracing(DrawingWindow &window, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals, std::vector<TextureMap> map, glm::vec3 &camera, float focalLength, std::vector<glm::vec3> lights, glm::mat3 cameraOrientation)
 {
     float margin = 0.0;
@@ -503,6 +538,7 @@ void drawUsingRayTracing(DrawingWindow &window, std::vector<ModelTriangle> model
     }
 }
 
+// draws a scene based on the rendertype, default is Rasterisation
 void draw(DrawingWindow &window, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals, std::vector<TextureMap> map, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation, std::vector<glm::vec3> lights, int renderType)
 {
     window.clearPixels();
@@ -514,6 +550,7 @@ void draw(DrawingWindow &window, std::vector<ModelTriangle> modelPoints, std::ve
         drawUsingRayTracing(window, modelPoints, vertexNormals, map, camera, focalLength, lights, cameraOrientation);
 }
 
+// Reads in an object file and returns the model triangles and vertex normals
 VertexProperties readObjFile(std::string filePath, std::unordered_map<std::string, Colour> palette, float scale)
 {
     std::vector<ModelTriangle> out;
@@ -617,6 +654,7 @@ VertexProperties readObjFile(std::string filePath, std::unordered_map<std::strin
     return VertexProperties{out, vertexNormals};
 }
 
+// Reads an mtl file and returns the colour dictionary and the texture map
 Palettes readMtlFile(std::string filePath)
 {
     std::unordered_map<std::string, Colour> colourPalette;
@@ -650,7 +688,7 @@ Palettes readMtlFile(std::string filePath)
         }
         else if (operation == "map_Kd")
         {
-            std::string fileLocation = "../../models/" + lineSplit[1];
+            std::string fileLocation = "./models/" + lineSplit[1];
             TextureMap t(fileLocation);
             maps.push_back(t);
             colourPalette[mtlName].texture = maps.size() - 1;
@@ -660,6 +698,7 @@ Palettes readMtlFile(std::string filePath)
     return Palettes{colourPalette, maps};
 }
 
+// calculates camera orientation for the camera to look at a point
 glm::mat3 lookAt(glm::vec3 v, glm::vec3 c)
 {
     glm::vec3 forward = glm::normalize((c - v));
@@ -668,6 +707,7 @@ glm::mat3 lookAt(glm::vec3 v, glm::vec3 c)
     return glm::mat3(right, up, forward);
 }
 
+// generates an x rotation for a particular angle
 glm::mat3 x_rotation(float angle)
 {
     glm::mat3 rotation(1.0, 0.0, 0.0,
@@ -676,6 +716,7 @@ glm::mat3 x_rotation(float angle)
     return rotation;
 }
 
+// generates a y rotation for a particular angle
 glm::mat3 y_rotation(float angle)
 {
     glm::mat3 rotation(std::cos(angle), 0.0, -1.0 * std::sin(angle),
@@ -684,6 +725,7 @@ glm::mat3 y_rotation(float angle)
     return rotation;
 }
 
+// generates a z rotation for a particular angle
 glm::mat3 z_rotation(float angle)
 {
     glm::mat3 rotation(std::cos(angle), std::sin(angle), 0.0,
@@ -692,6 +734,7 @@ glm::mat3 z_rotation(float angle)
     return rotation;
 }
 
+// handles all events in a render
 void handleEvent(SDL_Event event,
                  DrawingWindow &window,
                  glm::vec3 &camera,
@@ -899,15 +942,15 @@ int main(int argc, char *argv[])
 {
     DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
     SDL_Event event;
-    Palettes palettes = readMtlFile("../../models/material.mtl");
+    Palettes palettes = readMtlFile("./models/material.mtl");
     std::unordered_map<std::string, Colour> colourPalette = palettes.colourPalette;
     std::vector<TextureMap> map = palettes.map;
-    VertexProperties v = readObjFile("../../models/coursework-box.obj", colourPalette, 3);
+    VertexProperties v = readObjFile("./models/coursework-box.obj", colourPalette, 3);
     std::vector<ModelTriangle> modelPoints = v.modelPoints;
     std::vector<glm::vec3> vertexNormals = v.Normals;
     glm::vec3 camera(0.0, 0.0, 4.0);
-    glm::vec4 light2(0.0, 0.5, 0.5, 0.05);
-    std::vector<glm::vec3> sampledLights = sampleLightSources(light2, 1);
+    glm::vec4 light(0.0, 0.5, 0.5, 0.05); // describes (x,y,z) of light and the radius for soft shadows
+    std::vector<glm::vec3> sampledLights = sampleLightSources(light, 1);
     glm::mat3 cameraOrientation = glm::mat3(1.0, 0.0, 0.0,
                                             0.0, 1.0, 0.0,
                                             0.0, 0.0, 1.0);
@@ -920,7 +963,7 @@ int main(int argc, char *argv[])
     {
         // We MUST poll for events - otherwise the window will freeze !
         if (window.pollForInputEvents(event))
-            handleEvent(event, window, camera, cameraOrientation, focalLength, orbit, renderType, light2, sampledLights, lookAtEnabled);
+            handleEvent(event, window, camera, cameraOrientation, focalLength, orbit, renderType, light, sampledLights, lookAtEnabled);
         if (orbit)
         {
             camera = y_rotation(0.005) * camera;
