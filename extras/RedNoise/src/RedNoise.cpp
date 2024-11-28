@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <fstream>
 #include <vector>
+#include <typeinfo>
 #include <glm/glm.hpp>
 
 #define WIDTH 640
@@ -21,23 +22,37 @@
 #define BLUE Colour("Blue", 0, 0, 255)
 #define GREEN Colour("Green", 0, 255, 0)
 
-struct vertexNormalPair
+struct VertexProperties
 {
     std::vector<ModelTriangle> modelPoints;
-    std::vector<glm::vec3> vertexNormals;
+    std::vector<glm::vec3> Normals;
 };
 
-struct objectVertex
+struct Palettes
+{
+    std::unordered_map<std::string, Colour> colourPalette;
+    std::vector<TextureMap> map;
+};
+struct ObjectVertex
 {
     glm::vec3 vertex;
     int count;
 
-    objectVertex(const glm::vec3 &v, int c) : vertex(v), count(c) {}
+    ObjectVertex(const glm::vec3 &v, int c) : vertex(v), count(c) {}
 };
 
 uint32_t returnColour(Colour c)
 {
     return (255 << 24) + (c.red << 16) + (c.green << 8) + c.blue;
+}
+
+Colour retrieveColour(uint32_t n)
+{
+    int a = (n & 0xFF000000) >> 24;
+    int r = (n & 0x00FF0000) >> 16;
+    int g = (n & 0x0000FF00) >> 8;
+    int b = (n & 0x000000FF);
+    return Colour(r, g, b);
 }
 
 glm::vec3 returnLightingColour(Colour c, float angleOfIncidenceIntensity, float proximityIntensity, float specularIntensity, float ambientIntensity)
@@ -46,7 +61,7 @@ glm::vec3 returnLightingColour(Colour c, float angleOfIncidenceIntensity, float 
     glm::vec3 lightColour(WHITE.red, WHITE.green, WHITE.blue);
     glm::vec3 ambientComponent = ambientIntensity * objectColour;
     glm::vec3 diffuseComponent = angleOfIncidenceIntensity * proximityIntensity * objectColour;
-    glm::vec3 specularComponent = specularIntensity * proximityIntensity * lightColour;
+    glm::vec3 specularComponent = specularIntensity * angleOfIncidenceIntensity * proximityIntensity * lightColour;
     return glm::clamp(ambientComponent + diffuseComponent + specularComponent, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(255.0f, 255.0f, 255.0f));
 }
 
@@ -215,11 +230,12 @@ glm::vec3 projectCanvasPointOntoVertex(CanvasPoint p, float focalLength, glm::ve
     return out;
 }
 
-vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::string, Colour> pallette, float scale)
+VertexProperties readObjFile(std::string filePath, std::unordered_map<std::string, Colour> palette, float scale)
 {
     std::vector<ModelTriangle> out;
-    std::vector<objectVertex> vertices;
+    std::vector<ObjectVertex> vertices;
     std::vector<glm::vec3> vertexNormals;
+    std::vector<glm::vec2> vertexTexture;
     Colour c = WHITE;
     std::string shadingType = "flat";
     bool hasVertexNormals = false;
@@ -233,7 +249,7 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
         operation = lineSplit[0];
         if (operation == "v")
         {
-            objectVertex vertex(
+            ObjectVertex vertex(
                 glm::vec3(
                     std::stof(lineSplit[1]),
                     std::stof(lineSplit[2]),
@@ -250,11 +266,14 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
             ModelTriangle t;
             for (int i = 1; i < 4; i++)
             {
-                // ignore points[1] == texture vertex
                 std::vector<std::string> points = split(lineSplit[i], '/');
                 int v = std::stoi(points[0]) - 1;
                 t.vertices[i - 1] = vertices[v].vertex;
                 t.vertexIdx[i - 1] = v;
+                if (points[1] != "")
+                {
+                    t.texturePoints[i - 1] = vertexTexture[std::stoi(points[1]) - 1];
+                }
                 vertices[v].count += 1;
             }
             glm::vec3 normal = calculateNormal(t.vertices[0], t.vertices[1], t.vertices[2]);
@@ -286,34 +305,42 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
                     std::stof(lineSplit[3])));
             hasVertexNormals = true;
         }
+        else if (operation == "vt")
+        {
+            vertexTexture.push_back(
+                glm::vec2(
+                    std::stof(lineSplit[1]),
+                    std::stof(lineSplit[2])));
+        }
         else if (operation == "s")
         {
             shadingType = lineSplit[1];
         }
         else if (operation == "usemtl")
         {
-            std::string colourName = lineSplit[1];
-            if (pallette.find(colourName) == pallette.end())
+            std::string mtlName = lineSplit[1];
+            if (palette.find(mtlName) == palette.end())
             {
                 c = WHITE;
             }
             else
             {
-                c = pallette[colourName];
+                c = palette[mtlName];
             }
         }
     }
     file.close();
-    return vertexNormalPair{out, vertexNormals};
+    return VertexProperties{out, vertexNormals};
 }
 
-std::unordered_map<std::string, Colour> readMtlFile(std::string filePath)
+Palettes readMtlFile(std::string filePath)
 {
-    std::unordered_map<std::string, Colour> pallette;
+    std::unordered_map<std::string, Colour> colourPalette;
+    std::vector<TextureMap> maps;
     std::ifstream file(filePath);
     std::string line;
     std::string operation;
-    std::string colourName;
+    std::string mtlName;
 
     float r, g, b;
 
@@ -324,7 +351,7 @@ std::unordered_map<std::string, Colour> readMtlFile(std::string filePath)
 
         if (operation == "newmtl")
         {
-            colourName = lineSplit[1];
+            mtlName = lineSplit[1];
 
             if (getline(file, line))
             {
@@ -332,13 +359,21 @@ std::unordered_map<std::string, Colour> readMtlFile(std::string filePath)
                 r = std::stof(lineSplit[1]);
                 g = std::stof(lineSplit[2]);
                 b = std::stof(lineSplit[3]);
-                Colour c(colourName, round(r * 255), round(g * 255), round(b * 255));
-                pallette[colourName] = c;
+                Colour c(mtlName, round(r * 255), round(g * 255), round(b * 255));
+                c.texture = -1;
+                colourPalette[mtlName] = c;
             }
+        }
+        else if (operation == "map_Kd")
+        {
+            std::string fileLocation = "../../models/" + lineSplit[1];
+            TextureMap t(fileLocation);
+            maps.push_back(t);
+            colourPalette[mtlName].texture = maps.size() - 1;
         }
     }
     file.close();
-    return pallette;
+    return Palettes{colourPalette, maps};
 }
 
 glm::mat3 x_rotation(float angle)
@@ -354,6 +389,14 @@ glm::mat3 y_rotation(float angle)
     glm::mat3 rotation(std::cos(angle), 0.0, -1.0 * std::sin(angle),
                        0.0, 1.0, 0.0,
                        std::sin(angle), 0.0, std::cos(angle));
+    return rotation;
+}
+
+glm::mat3 z_rotation(float angle)
+{
+    glm::mat3 rotation(std::cos(angle), std::sin(angle), 0.0,
+                       -1.0 * std::sin(angle), std::cos(angle), 0.0,
+                       0.0, 0.0, 1.0);
     return rotation;
 }
 
@@ -413,7 +456,7 @@ int hasShadow(std::vector<ModelTriangle> modelPoints, glm::vec3 light, glm::vec3
 float calculateProximity(glm::vec3 light, glm::vec3 point)
 {
     float distance = glm::distance(light, point);
-    float diffuse = 10 / (3 * 3.14 * distance * distance);
+    float diffuse = 30 / (3 * 3.14 * distance * distance);
     if (diffuse >= 1.0)
         return 1.0;
     else
@@ -458,18 +501,9 @@ glm::vec3 calculateLightingColour(glm::vec3 point, std::vector<glm::vec3> lights
         shadowFactor /= lights.size();
         return returnLightingColour(r.intersectedTriangle.colour, shadowFactor * angleOfIncidenceIntensity, proximityIntensity, shadowFactor * specularIntensity, ambientIntensity);
     }
-    if (hasShadow(modelPoints, lights[0], point, r.triangleIndex))
+    if (hasShadow(modelPoints, lights[0], point, r.triangleIndex) == 0)
         return returnLightingColour(r.intersectedTriangle.colour, angleOfIncidenceIntensity, proximityIntensity, 0.0f, ambientIntensity);
     return returnLightingColour(r.intersectedTriangle.colour, angleOfIncidenceIntensity, proximityIntensity, specularIntensity, ambientIntensity);
-    // if (hasShadow(modelPoints, lights, point, r.triangleIndex))
-    // {
-    //     if (flatShading)
-    //         return returnLightingColour(r.intersectedTriangle.colour, 0.0f, 0.0f, 0.0f, ambientIntensity);
-    //     else
-    //         return returnLightingColour(r.intersectedTriangle.colour, angleOfIncidenceIntensity, proximityIntensity, 0.0f, ambientIntensity);
-    // }
-    // else
-    //     return returnLightingColour(r.intersectedTriangle.colour, angleOfIncidenceIntensity, proximityIntensity, specularIntensity, ambientIntensity);
 }
 
 glm::vec3 calculateBarycentric(ModelTriangle t, glm::vec3 point)
@@ -484,8 +518,19 @@ glm::vec3 calculateBarycentric(ModelTriangle t, glm::vec3 point)
     return glm::vec3(u, v, w);
 }
 
-Colour flatShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 camera, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints)
+Colour flatShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 camera, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, std::vector<TextureMap> map)
 {
+    ModelTriangle t = r.intersectedTriangle;
+    if (t.colour.texture != -1)
+    {
+        TextureMap m = map[t.colour.texture];
+        r.intersectedTriangle.colour = WHITE;
+        glm::vec3 barycentric = calculateBarycentric(t, point);
+        glm::vec2 p = barycentric.x * t.texturePoints[2] + barycentric.y * t.texturePoints[1] + barycentric.z * t.texturePoints[0];
+        glm::vec2 texture_point(std::floor(p.x * (float)m.width), std::floor(p.y * (float)m.height));
+        Colour c(retrieveColour(m.pixels[texture_point.y * m.width + texture_point.x]));
+        r.intersectedTriangle.colour = c;
+    }
     glm::vec3 c = calculateLightingColour(point, lights, camera, r.intersectedTriangle.normal, r, modelPoints, true);
     return Colour(c.r, c.g, c.b);
 }
@@ -514,14 +559,14 @@ Colour gouraudShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 
     return Colour(c.r, c.g, c.b);
 }
 
-Colour mirrorShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals)
+Colour mirrorShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 camera, glm::vec3 n0, glm::vec3 n1, glm::vec3 n2, RayTriangleIntersection r, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals, std::vector<TextureMap> map)
 {
     glm::vec3 rayOfIncidence = glm::normalize(point - camera);
     glm::vec3 barycentric = calculateBarycentric(r.intersectedTriangle, point);
     glm::vec3 normalAtPoint = glm::normalize(barycentric.z * n0 + barycentric.y * n1 + barycentric.x * n2);
     glm::vec3 rayOfReflection = glm::normalize(rayOfIncidence - (float)2.0 * normalAtPoint * (glm::dot(rayOfIncidence, normalAtPoint)));
     RayTriangleIntersection reflectedTriangle = getClosestValidIntersection(point, rayOfReflection, modelPoints, r.triangleIndex, 0.05);
-    if (r.triangleIndex < modelPoints.size())
+    if (reflectedTriangle.triangleIndex < modelPoints.size())
     {
         glm::vec3 reflectedPoint = point + reflectedTriangle.distanceFromCamera * rayOfReflection;
         if (reflectedTriangle.intersectedTriangle.shadingType == "phong")
@@ -543,13 +588,13 @@ Colour mirrorShading(glm::vec3 point, std::vector<glm::vec3> lights, glm::vec3 c
                                   reflectedTriangle,
                                   modelPoints);
         else
-            return flatShading(reflectedPoint, lights, camera, reflectedTriangle, modelPoints);
+            return flatShading(reflectedPoint, lights, camera, reflectedTriangle, modelPoints, map);
     }
     else
         return BLACK;
 }
 
-void drawUsingWireframes(DrawingWindow &window, std::unordered_map<std::string, Colour> pallette, std::vector<ModelTriangle> modelPoints, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation, bool orbit)
+void drawUsingWireframes(DrawingWindow &window, std::vector<ModelTriangle> modelPoints, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation)
 {
     for (size_t i = 0; i < modelPoints.size(); i++)
     {
@@ -559,16 +604,15 @@ void drawUsingWireframes(DrawingWindow &window, std::unordered_map<std::string, 
             projectVertexOntoCanvasPoint(camera, focalLength, t.vertices[1], cameraOrientation),
             projectVertexOntoCanvasPoint(camera, focalLength, t.vertices[2], cameraOrientation));
         if (!(notOnTheScreen(cT.v0()) && notOnTheScreen(cT.v1()) && notOnTheScreen(cT.v2())))
+        {
+            if (t.colour.texture != -1)
+                t.colour = WHITE;
             drawStrokedTriangle(window, cT, t.colour);
-    }
-    if (orbit)
-    {
-        camera = y_rotation(0.01) * camera;
-        cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
+        }
     }
 }
 
-void drawUsingRasterisation(DrawingWindow &window, std::unordered_map<std::string, Colour> pallette, std::vector<ModelTriangle> modelPoints, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation, bool orbit)
+void drawUsingRasterisation(DrawingWindow &window, std::vector<ModelTriangle> modelPoints, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation)
 {
 
     float depthArr[HEIGHT][WIDTH] = {};
@@ -580,17 +624,15 @@ void drawUsingRasterisation(DrawingWindow &window, std::unordered_map<std::strin
             projectVertexOntoCanvasPoint(camera, focalLength, t.vertices[1], cameraOrientation),
             projectVertexOntoCanvasPoint(camera, focalLength, t.vertices[2], cameraOrientation));
         if (!(notOnTheScreen(cT.v0()) && notOnTheScreen(cT.v1()) && notOnTheScreen(cT.v2())))
+        {
+            if (t.colour.texture != -1)
+                t.colour = WHITE;
             drawFilledTriangle(window, cT, t.colour, depthArr);
-    }
-
-    if (orbit)
-    {
-        camera = y_rotation(0.01) * camera;
-        cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
+        }
     }
 }
 
-void drawUsingRayTracing(DrawingWindow &window, std::unordered_map<std::string, Colour> pallette, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals, glm::vec3 &camera, float focalLength, std::vector<glm::vec3> lights, glm::mat3 cameraOrientation)
+void drawUsingRayTracing(DrawingWindow &window, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals, std::vector<TextureMap> map, glm::vec3 &camera, float focalLength, std::vector<glm::vec3> lights, glm::mat3 cameraOrientation)
 {
     float margin = 0.0;
     for (int y = 0; y < HEIGHT; y++)
@@ -600,18 +642,20 @@ void drawUsingRayTracing(DrawingWindow &window, std::unordered_map<std::string, 
             glm::vec3 p = projectCanvasPointOntoVertex(CanvasPoint(x, y), focalLength, camera, cameraOrientation);
             glm::vec3 d = glm::normalize(p - camera);
             RayTriangleIntersection r = getClosestValidIntersection(camera, d, modelPoints, -1, margin);
-            glm::vec3 point = camera + r.distanceFromCamera * d;
-            Colour c;
-            if (r.intersectedTriangle.shadingType == "phong")
-                c = phongShading(point, lights, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints);
-            else if (r.intersectedTriangle.shadingType == "gouraud")
-                c = gouraudShading(point, lights, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints);
-            else if (r.intersectedTriangle.shadingType == "mirror")
-                c = mirrorShading(point, lights, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints, vertexNormals);
-            else
-                c = flatShading(point, lights, camera, r, modelPoints);
-            if (r.triangleIndex < modelPoints.size())
+            if (r.triangleIndex < modelPoints.size() && r.triangleIndex >= 0)
+            {
+                glm::vec3 point = camera + r.distanceFromCamera * d;
+                Colour c;
+                if (r.intersectedTriangle.shadingType == "phong")
+                    c = phongShading(point, lights, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints);
+                else if (r.intersectedTriangle.shadingType == "gouraud")
+                    c = gouraudShading(point, lights, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints);
+                else if (r.intersectedTriangle.shadingType == "mirror")
+                    c = mirrorShading(point, lights, camera, vertexNormals[r.intersectedTriangle.vertexIdx[0]], vertexNormals[r.intersectedTriangle.vertexIdx[1]], vertexNormals[r.intersectedTriangle.vertexIdx[2]], r, modelPoints, vertexNormals, map);
+                else
+                    c = flatShading(point, lights, camera, r, modelPoints, map);
                 window.setPixelColour(x, y, returnColour(c));
+            }
             else
                 window.setPixelColour(x, y, returnColour(BLACK));
         }
@@ -634,35 +678,40 @@ std::vector<glm::vec3> sampleLightSources(glm::vec4 light, int sampleSize)
         glm::vec3 ratio(randomFloat() * radius, randomFloat() * radius, randomFloat() * radius);
         glm::vec3 newLight = center + ratio;
         out.push_back(newLight);
-        std::cout << newLight.x << ";" << newLight.y << ";" << newLight.z << std::endl;
     }
     return out;
 }
 
-void draw(DrawingWindow &window, std::unordered_map<std::string, Colour> pallette, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation, bool orbit, std::vector<glm::vec3> lights, int renderType)
+void draw(DrawingWindow &window, std::vector<ModelTriangle> modelPoints, std::vector<glm::vec3> vertexNormals, std::vector<TextureMap> map, glm::vec3 &camera, float focalLength, glm::mat3 &cameraOrientation, std::vector<glm::vec3> lights, int renderType)
 {
     window.clearPixels();
     if (renderType == 1)
-        drawUsingWireframes(window, pallette, modelPoints, camera, focalLength, cameraOrientation, orbit);
+        drawUsingWireframes(window, modelPoints, camera, focalLength, cameraOrientation);
     else if (renderType == 2)
-        drawUsingRasterisation(window, pallette, modelPoints, camera, focalLength, cameraOrientation, orbit);
+        drawUsingRasterisation(window, modelPoints, camera, focalLength, cameraOrientation);
     else if (renderType == 3)
-        drawUsingRayTracing(window, pallette, modelPoints, vertexNormals, camera, focalLength, lights, cameraOrientation);
-    for (glm::vec3 light : lights)
-    {
-        CanvasPoint p = projectVertexOntoCanvasPoint(camera, focalLength, glm::vec3(light.x, light.y, light.z), cameraOrientation);
-        window.setPixelColour(p.x, p.y, returnColour(WHITE));
-    }
-    CanvasPoint p0 = projectVertexOntoCanvasPoint(camera, focalLength, glm::vec3(lights[0].x, lights[0].y, lights[0].z), cameraOrientation);
-    CanvasPoint p1 = projectVertexOntoCanvasPoint(camera, focalLength, glm::vec3(lights[0].x + 0.075, lights[0].y - 0.075, lights[0].z), cameraOrientation);
-    drawLine(window, p0, p1, WHITE);
+        drawUsingRayTracing(window, modelPoints, vertexNormals, map, camera, focalLength, lights, cameraOrientation);
+    // for (glm::vec3 light : lights)
+    // {
+    //     CanvasPoint p = projectVertexOntoCanvasPoint(camera, focalLength, glm::vec3(light.x, light.y, light.z), cameraOrientation);
+    //     window.setPixelColour(p.x, p.y, returnColour(WHITE));
+    // }
 }
 
-void handleEvent(SDL_Event event, DrawingWindow &window, glm::vec3 &camera, glm::mat3 &cameraOrientation, bool &orbit, int &renderType, glm::vec4 &light)
+void handleEvent(SDL_Event event,
+                 DrawingWindow &window,
+                 glm::vec3 &camera,
+                 glm::mat3 &cameraOrientation,
+                 float &focalLength,
+                 bool &orbit,
+                 int &renderType,
+                 glm::vec4 &light,
+                 std::vector<glm::vec3> &sampleLights,
+                 bool &lookAtEnabled)
 {
     glm::vec3 x_translate(0.2, 0.0, 0.0);
     glm::vec3 y_translate(0.0, 0.2, 0.0);
-    glm::vec3 z_translate(0.0, 0.0, 0.2);
+    glm::vec3 z_translate(0.0, 0.0, 0.1);
 
     float angle = 0.087;
 
@@ -702,31 +751,49 @@ void handleEvent(SDL_Event event, DrawingWindow &window, glm::vec3 &camera, glm:
         {
             std::cout << "-5 deg y-axis" << std::endl;
             camera = y_rotation(-1 * angle) * camera;
-            cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
+            if (lookAtEnabled)
+                cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
         }
         else if (event.key.keysym.sym == SDLK_d)
         {
             std::cout << "+5 deg y-axis" << std::endl;
             camera = y_rotation(angle) * camera;
-            cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
+            if (lookAtEnabled)
+                cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
         }
         else if (event.key.keysym.sym == SDLK_s)
         {
             std::cout << "-5 deg x-axis" << std::endl;
-            if (camera.z >= 0)
-                camera = x_rotation(angle) * camera;
-            else
-                camera = x_rotation(-1 * angle) * camera;
-            cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
+            camera = x_rotation(angle) * camera;
+            if (lookAtEnabled)
+                cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
         }
         else if (event.key.keysym.sym == SDLK_w)
         {
             std::cout << "+5 deg x-axis" << std::endl;
-            if (camera.z >= 0)
-                camera = x_rotation(-1 * angle) * camera;
-            else
-                camera = x_rotation(angle) * camera;
-            cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
+            camera = x_rotation(-1 * angle) * camera;
+            if (lookAtEnabled)
+                cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
+        }
+        else if (event.key.keysym.sym == SDLK_u)
+        {
+            std::cout << "Tilt up" << std::endl;
+            cameraOrientation *= x_rotation(angle * 0.1f);
+        }
+        else if (event.key.keysym.sym == SDLK_j)
+        {
+            std::cout << "Tilt down" << std::endl;
+            cameraOrientation *= x_rotation(-0.1f * angle);
+        }
+        else if (event.key.keysym.sym == SDLK_n)
+        {
+            std::cout << "Pan left" << std::endl;
+            cameraOrientation *= y_rotation(0.1f * angle);
+        }
+        else if (event.key.keysym.sym == SDLK_m)
+        {
+            std::cout << "Pan right" << std::endl;
+            cameraOrientation *= y_rotation(-0.1f * angle);
         }
         else if (event.key.keysym.sym == SDLK_o)
         {
@@ -739,6 +806,19 @@ void handleEvent(SDL_Event event, DrawingWindow &window, glm::vec3 &camera, glm:
             {
                 std::cout << "Orbit Enabled" << std::endl;
                 orbit = true;
+            }
+        }
+        else if (event.key.keysym.sym == SDLK_0)
+        {
+            if (lookAtEnabled)
+            {
+                std::cout << "Look At Disabled" << std::endl;
+                lookAtEnabled = false;
+            }
+            else
+            {
+                std::cout << "Look At Enabled" << std::endl;
+                lookAtEnabled = true;
             }
         }
         else if (event.key.keysym.sym == SDLK_1)
@@ -759,32 +839,48 @@ void handleEvent(SDL_Event event, DrawingWindow &window, glm::vec3 &camera, glm:
         else if (event.key.keysym.sym == SDLK_t)
         {
             std::cout << "Move Light up" << std::endl;
-            light += glm::vec4(0.0, 0.0, 0.1, 0.0);
+            light += glm::vec4(0.0, 0.1, 0.0, 0.0);
+            sampleLights = sampleLightSources(light, sampleLights.size());
         }
         else if (event.key.keysym.sym == SDLK_g)
         {
             std::cout << "Move Light down" << std::endl;
-            light += glm::vec4(0.0, 0.0, -0.1, 0.0);
+            light += glm::vec4(0.0, -0.1, 0.0, 0.0);
+            sampleLights = sampleLightSources(light, sampleLights.size());
         }
         else if (event.key.keysym.sym == SDLK_f)
         {
             std::cout << "Move Light left" << std::endl;
-            light += glm::vec4(0.0, -0.1, 0.0, 0.0);
+            light += glm::vec4(-0.1, 0.0, 0.0, 0.0);
+            sampleLights = sampleLightSources(light, sampleLights.size());
         }
         else if (event.key.keysym.sym == SDLK_h)
         {
             std::cout << "Move Light right" << std::endl;
-            light += glm::vec4(0.0, 0.1, 0.0, 0.0);
+            light += glm::vec4(0.1, 0.0, 0.0, 0.0);
+            sampleLights = sampleLightSources(light, sampleLights.size());
         }
         else if (event.key.keysym.sym == SDLK_v)
         {
             std::cout << "Move Light out" << std::endl;
-            light += glm::vec4(0.0, 0.0, 0.0, 0.1);
+            light += glm::vec4(0.0, 0.0, 0.1, 0.0);
+            sampleLights = sampleLightSources(light, sampleLights.size());
         }
         else if (event.key.keysym.sym == SDLK_b)
         {
             std::cout << "Move Light in" << std::endl;
-            light += glm::vec4(0.0, 0.0, 0.0, -0.1);
+            light += glm::vec4(0.0, 0.0, -0.1, 0.0);
+            sampleLights = sampleLightSources(light, sampleLights.size());
+        }
+        else if (event.key.keysym.sym == SDLK_8)
+        {
+            std::cout << "Hard Shadows" << std::endl;
+            sampleLights = sampleLightSources(light, 1);
+        }
+        else if (event.key.keysym.sym == SDLK_9)
+        {
+            std::cout << "Soft Shadows" << std::endl;
+            sampleLights = sampleLightSources(light, 10);
         }
         else if (event.key.keysym.sym == SDLK_p)
         {
@@ -809,28 +905,71 @@ int main(int argc, char *argv[])
 {
     DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
     SDL_Event event;
-    std::unordered_map<std::string, Colour> pallette = readMtlFile("../../models/cornell-box.mtl");
-    vertexNormalPair v = readObjFile("../../models/test.obj", pallette, 2.8);
+    Palettes palettes = readMtlFile("../../models/textured-cornell-box.mtl");
+    std::unordered_map<std::string, Colour> colourPalette = palettes.colourPalette;
+    std::vector<TextureMap> map = palettes.map;
+    VertexProperties v = readObjFile("../../models/shadow_animation.obj", colourPalette, 3);
     std::vector<ModelTriangle> modelPoints = v.modelPoints;
-    std::vector<glm::vec3> vertexNormals = v.vertexNormals;
+    std::vector<glm::vec3> vertexNormals = v.Normals;
     glm::vec3 camera(0.0, 0.0, 4.0);
-    glm::vec3 light(0.0, 0.85, 1.0);
-    glm::vec4 light2(0.0, 0.85, 1.0, 0.075);
-    std::cout << light2.w << ";" << light2.x << ";" << light2.y << ";" << light2.z << std::endl;
-    std::vector<glm::vec3> sampledLights = sampleLightSources(light2, 25);
+    // glm::vec3 light(0.0, 0.85, 1.0);
+    glm::vec4 light2(1.0, 1.0, 0.0, 0.08);
+    std::vector<glm::vec3> sampledLights = sampleLightSources(light2, 10);
     glm::mat3 cameraOrientation = glm::mat3(1.0, 0.0, 0.0,
                                             0.0, 1.0, 0.0,
                                             0.0, 0.0, 1.0);
     float focalLength = 2.0;
     bool orbit = false;
     int renderType = 2;
+    bool lookAtEnabled = true;
+    int factor = 1;
 
     while (true)
     {
         // We MUST poll for events - otherwise the window will freeze !
         if (window.pollForInputEvents(event))
-            handleEvent(event, window, camera, cameraOrientation, orbit, renderType, light2);
-        draw(window, pallette, modelPoints, vertexNormals, camera, focalLength, cameraOrientation, orbit, sampledLights, renderType);
+            handleEvent(event, window, camera, cameraOrientation, focalLength, orbit, renderType, light2, sampledLights, lookAtEnabled);
+        // if (orbit)
+        // {
+        //     camera = y_rotation(0.005) * camera;
+        //     cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
+        // }
+        // Rocking between 30 degrees
+
+        // float angle = glm::dot(cameraOrientation[2], glm::vec3(0.0, 0.0, 1.0));
+        // if (orbit)
+        // {
+        //     if (std::abs(angle) <= 0.97f)
+        //     {
+        //         factor *= -1;
+        //         std::cout << std::acos(angle) << std::endl;
+        //     }
+        //     camera = y_rotation(factor * 0.03) * camera;
+        //     cameraOrientation = lookAt(glm::vec3(0, 0, 0), camera);
+        // }
+
+        // Rotating Light
+        // if (orbit)
+        // {
+        //     glm::vec3 light = y_rotation(0.03) * glm::vec3(light2.x, light2.y, light2.z);
+        //     sampledLights = std::vector<glm::vec3>{light};
+        //     light2 = glm::vec4(light.x, light.y, light.z, 0.05);
+        // }
+
+        // Rocking Lights
+
+        if (orbit)
+        {
+            float angle = glm::dot(sampledLights[0], glm::normalize(glm::vec3(0.0, 1.0, 0.0)));
+            if (std::abs(angle) <= 0.5f)
+                factor *= -1;
+            glm::mat3 rotation = z_rotation(0.03 * factor);
+            for (int i = 0; i < sampledLights.size(); i++)
+            {
+                sampledLights[i] = rotation * sampledLights[i];
+            }
+        }
+        draw(window, modelPoints, vertexNormals, map, camera, focalLength, cameraOrientation, sampledLights, renderType);
         // Need to render the frame at the end, or nothing actually gets shown on the screen !
         window.renderFrame();
     }

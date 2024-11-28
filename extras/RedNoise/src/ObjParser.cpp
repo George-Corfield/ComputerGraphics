@@ -22,6 +22,7 @@ struct vertexNormalPair
     std::vector<ModelTriangle> modelPoints;
     std::vector<glm::vec3> vertexNormals;
     std::vector<objectVertex> vertices;
+    std::vector<glm::vec2> texturePoints;
 };
 
 glm::vec3 calculateNormal(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2)
@@ -52,9 +53,11 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
     std::vector<ModelTriangle> out;
     std::vector<objectVertex> vertices;
     std::vector<glm::vec3> vertexNormals;
+    std::vector<glm::vec2> vertexTexture;
     Colour c;
+    glm::mat3 yRotation = y_rotation(0.785398f);
     glm::mat3 xRotation = x_rotation(-1.5708f);
-    glm::vec3 translation(0.65f, -2.85f, 1.4f);
+    glm::vec3 translation(0.0f, -3.15f, 0.5f);
     bool hasVertexNormals = false;
 
     std::ifstream file(filePath);
@@ -72,8 +75,8 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
                     std::stof(lineSplit[2]),
                     std::stof(lineSplit[3])),
                 0);
-            vertex.vertex /= 113.0f / 2.5f;
-            vertex.vertex = xRotation * vertex.vertex;
+            vertex.vertex /= 90.0f / 2.5f;
+            vertex.vertex = yRotation * xRotation * vertex.vertex;
             vertex.vertex += translation;
             vertices.push_back(vertex);
             if (!hasVertexNormals)
@@ -84,11 +87,11 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
             ModelTriangle t;
             for (int i = 1; i < 4; i++)
             {
-                // ignore points[1] == texture vertex
                 std::vector<std::string> points = split(lineSplit[i], '/');
                 int v = std::stoi(points[0]) - 1;
                 t.vertices[i - 1] = vertices[v].vertex;
                 t.vertexIdx[i - 1] = v;
+                // t.texturePoints[i - 1] = glm::vec2(std::stoi(points[1]) - 1);
             }
             glm::vec3 normal = calculateNormal(t.vertices[0], t.vertices[1], t.vertices[2]);
             t.normal = normal;
@@ -116,6 +119,13 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
                     std::stof(lineSplit[3])));
             hasVertexNormals = true;
         }
+        else if (operation == "vt")
+        {
+            vertexTexture.push_back(
+                glm::vec2(
+                    std::stof(lineSplit[1]),
+                    std::stof(lineSplit[2])));
+        }
         else if (operation == "usemtl")
         {
             std::string colourName = lineSplit[1];
@@ -137,7 +147,7 @@ vertexNormalPair readObjFile(std::string filePath, std::unordered_map<std::strin
     // std::cout << vertices[31].vertex.x << ";" << vertices[31].vertex.y << ";" << vertices[31].vertex.z << std::endl;
     // std::cout << vertices[2].vertex.x << ";" << vertices[2].vertex.y << ";" << vertices[2].vertex.z << std::endl;
 
-    return vertexNormalPair{out, vertexNormals, vertices};
+    return vertexNormalPair{out, vertexNormals, vertices, vertexTexture};
 }
 
 std::unordered_map<std::string, Colour> readMtlFile(std::string filePath)
@@ -179,6 +189,8 @@ void writeToNewFile(std::string newFileName, vertexNormalPair v, int offset)
     std::vector<ModelTriangle> t = v.modelPoints;
     std::vector<glm::vec3> vertexNormals = v.vertexNormals;
     std::vector<objectVertex> vertices = v.vertices;
+    std::vector<glm::vec2> texturePoints = v.texturePoints;
+    bool hasTexture = texturePoints.size() > 0;
 
     std::fstream file(newFileName, std::fstream::app);
     std::string line;
@@ -195,6 +207,12 @@ void writeToNewFile(std::string newFileName, vertexNormalPair v, int offset)
         file << line;
     }
 
+    for (int i = 0; i < texturePoints.size(); i++)
+    {
+        line = "vt " + std::to_string(texturePoints[i].x) + " " + std::to_string(texturePoints[i].y) + "\n";
+        file << line;
+    }
+
     for (int i = 0; i < t.size(); i++)
     {
         if (colourName != t[i].colour.name)
@@ -203,7 +221,10 @@ void writeToNewFile(std::string newFileName, vertexNormalPair v, int offset)
             file << "s phong\n";
             colourName = t[i].colour.name;
         }
-        line = "f " + std::to_string(t[i].vertexIdx[0] + 1 + offset) + "//" + std::to_string(t[i].vertexIdx[0] + 1 + offset) + " " + std::to_string(t[i].vertexIdx[1] + 1 + offset) + "//" + std::to_string(t[i].vertexIdx[1] + 1 + offset) + " " + std::to_string(t[i].vertexIdx[2] + 1 + offset) + "//" + std::to_string(t[i].vertexIdx[2] + 1 + offset) + "\n";
+        if (hasTexture)
+            line = "f " + std::to_string(t[i].vertexIdx[0] + 1 + offset) + "/" + std::to_string((int)t[i].texturePoints[0].x + 1) + "/" + std::to_string(t[i].vertexIdx[0] + 1 + offset) + " " + std::to_string(t[i].vertexIdx[1] + 1 + offset) + "/" + std::to_string((int)t[i].texturePoints[1].x + 1) + "/" + std::to_string(t[i].vertexIdx[1] + 1 + offset) + " " + std::to_string(t[i].vertexIdx[2] + 1 + offset) + "/" + std::to_string((int)t[i].texturePoints[2].x + 1) + "/" + std::to_string(t[i].vertexIdx[2] + 1 + offset) + "\n";
+        else
+            line = "f " + std::to_string(t[i].vertexIdx[0] + 1 + offset) + "//" + std::to_string(t[i].vertexIdx[0] + 1 + offset) + " " + std::to_string(t[i].vertexIdx[1] + 1 + offset) + "//" + std::to_string(t[i].vertexIdx[1] + 1 + offset) + " " + std::to_string(t[i].vertexIdx[2] + 1 + offset) + "//" + std::to_string(t[i].vertexIdx[2] + 1 + offset) + "\n";
         file << line;
     }
     file.close();
@@ -215,6 +236,8 @@ int main(int argc, char *argv[])
     vertexNormalPair v = readObjFile("../../models/bunny-low.obj", pallette);
     std::vector<ModelTriangle> modelPoints = v.modelPoints;
     std::vector<glm::vec3> vertexNormals = v.vertexNormals;
-
-    writeToNewFile("../../models/test.obj", v, 98);
+    std::cout << v.vertices.size() << std::endl;
+    std::cout << v.vertexNormals.size() << std::endl;
+    std::cout << v.texturePoints.size() << std::endl;
+    writeToNewFile("../../models/shadow_animation.obj", v, 4);
 }
