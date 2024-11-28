@@ -151,7 +151,7 @@ glm::vec3 calculateNormal(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2)
 // generates a random float between -1 and 1
 float randomFloat()
 {
-    return ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+    return ((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f;
 }
 
 // generates a sample of lights in a sphere for soft shadowing
